@@ -1,0 +1,170 @@
+//All manual functions work. 
+//Auto cancels manual functions.
+// Auto mode works. 
+// NEED secondary TIMER to delay AUTO trigger after done with cycle. 
+// Code Works properly V7
+
+
+/* Comment this out to disable prints and save space */
+#define BLYNK_PRINT Serial
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <SimpleTimer.h>      // library for SimpleTimer   
+
+// You should get Auth Token in the Blynk App.
+// Go to the Project Settings (nut icon).
+char auth[] = "49cd0e4a66d94d62849224f669ba5c06";
+
+// Your WiFi credentials.
+// Set password to "" for open networks.
+char ssid[] = "Diez";
+char pass[] = "diezwireless";
+int Relay = D2;
+int pinSet;
+int ManualButton;
+bool OverRide = false;
+int MoistureSlider;
+int MoistureTolerance;
+int Countdown;                // Global variable used in Slider widget and runEveryMinute()
+bool ONstatus  = false;       // variable to switch device ON and OFF
+int IrrigationMode;
+bool AutoCycleComplete = false;
+int MoistureReader;
+int TimerSlider;
+
+SimpleTimer timer;
+SimpleTimer RESETtimer;
+
+  BLYNK_WRITE(V3)
+{
+  ManualButton = param.asInt(); // assigning incoming value from pin V1 to a variable
+}
+
+BLYNK_WRITE(V4)
+{ IrrigationMode = param.asInt(); } // assigning incoming value from pin V1 to a variable
+  
+
+BLYNK_WRITE(V5)
+{ MoistureSlider = param.asInt(); } // assigning incoming value from pin V5 to a variable
+
+BLYNK_WRITE(V0){   // add a slider to your project on V0 range 0 to 30 (minutes)
+  Countdown = param.asInt();  // set variable as Slider value
+  TimerSlider = param.asInt();
+}
+
+void runEveryMinute(){ // runs every 60s, will do noting when Slider is at zero
+  int MoistureReader = analogRead(A0);
+  MoistureReader = map(MoistureReader, 150, 1023, 120, 0);
+
+  if ((IrrigationMode == 0)) {
+    Blynk.virtualWrite (V8, 1023);
+    Blynk.virtualWrite (V10, 10);
+  }
+  if ((IrrigationMode == 1) && (AutoCycleComplete == true)) {
+    Blynk.virtualWrite (V8, 10);  //turns leds on
+    Blynk.virtualWrite (V10, 1023);  //turns leds on
+    Blynk.virtualWrite (V3, 0);
+    ManualButton = 0;
+    
+    Blynk.virtualWrite (V1, "NOT Watering");
+    Blynk.virtualWrite (V9, MoistureSlider);
+    Blynk.virtualWrite (V11, TimerSlider);
+  }
+  
+  if((Countdown > 0) && (ManualButton == 1) && (IrrigationMode == 0)){
+    Countdown--;    //  reduce Countdown by 1 minute every 60s
+    Serial.print(F("Device will switch OFF in "));
+    Serial.print(Countdown);
+    Serial.println(F(" minute(s)")); 
+    Blynk.virtualWrite (V7, Countdown);   
+    Blynk.virtualWrite (V1, "Watering Manual");
+    digitalWrite(Relay, LOW); 
+    Blynk.virtualWrite (V11, TimerSlider);
+    
+    }
+
+// here starts the automatic portion
+
+    if ((MoistureReader <= MoistureSlider) && (IrrigationMode == 1)) {AutoCycleComplete = false; Blynk.virtualWrite (V1, "AutoCompleteCycle FALSE");}
+
+    if ((Countdown > 0) && (AutoCycleComplete == false) && (IrrigationMode == 1)){
+    Countdown--;    //  reduce Countdown by 1 minute every 60s
+    //Serial.print(F("Device will switch OFF in "));
+    //Serial.print(Countdown);
+    //Serial.println(F(" minute(s)")); 
+    Blynk.virtualWrite (V7, Countdown);   
+    Blynk.virtualWrite (V1, "Watering Auto");
+    digitalWrite(Relay, LOW); 
+    Blynk.virtualWrite (V11, TimerSlider);
+    Blynk.virtualWrite (V13, MoistureReader);
+    Blynk.email ("Your irrigation system is on", "Your irrigation system is watering right now.");
+    int MoistureReader = analogRead(A0);
+  MoistureReader = map(MoistureReader, 150, 1023, 120, 0);
+
+    }
+    
+// here finished the automatic portion
+
+
+   
+  if ((ManualButton == 0) && (IrrigationMode == 0)) { digitalWrite(Relay, HIGH); Blynk.virtualWrite (V1, "NOT Watering"); }
+    
+  if((Countdown > 0) && (ManualButton == 1) && (IrrigationMode == 0)){
+    ONstatus = true;   // to ensure device is only turned ON once
+    digitalWrite(Relay, LOW);
+    Blynk.virtualWrite (V1, "Watering");
+
+    
+    // code here to turn your device ON 
+  }
+
+  if((Countdown == 0)){
+    AutoCycleComplete = true;
+    //Serial.println(F("Device is now OFF"));
+    ONstatus = false;    
+    digitalWrite(Relay, HIGH);
+    Blynk.virtualWrite (V1, "NOT Watering");
+    Blynk.virtualWrite (V3, 0);
+    ManualButton = 0;
+    Countdown = TimerSlider;
+
+    // to ensure device is only turned OFF once
+    // code here to turn your device OFF
+  }
+  
+}
+
+// Getting 
+
+BLYNK_CONNECTED() {
+    Blynk.syncAll();
+}
+
+void setup()
+
+{
+    // initialize serial communication at 115200 bits per second:
+  Serial.begin(115200);
+  pinMode (Relay, OUTPUT);
+  digitalWrite(Relay, HIGH);
+  Blynk.begin(auth, ssid, pass);
+  timer.setInterval(600L, runEveryMinute);  // start the 60s timer function
+  //RESETtimer.setInterval(600L);
+}
+
+void loop()
+{  
+  int MoistureReader = analogRead(A0);
+  MoistureReader = map(MoistureReader, 150, 1023, 120, 0);
+  
+  Blynk.virtualWrite (V2, MoistureReader);
+  Blynk.virtualWrite (V12, MoistureReader);
+  Blynk.run();
+  timer.run(); // Initiates SimpleTimer to ensure the 60s timer keeps running 
+  // You can inject your own code or combine it with other sketches.
+  // Check other examples on how to communicate with Blynk. Remember
+  // to avoid delay() function!   
+    
+  
+}
+
